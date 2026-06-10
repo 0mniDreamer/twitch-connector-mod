@@ -63,12 +63,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ParsedTwitchMessage.cs" />
+    <Compile Include="TwitchAuth.cs" />
+    <Compile Include="TwitchTokenStore.cs" />
     <Compile Include="TwitchIRC.cs" />
     <Compile Include="TwitchConnectorMod.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy "$(TargetPath)" "C:\Program Files (x86)\Steam\steamapps\common\Audica\Mods"</PostBuildEvent>
+    <PostBuildEvent>copy "$(TargetPath)" "E:\SteamLibrary\steamapps\common\Audica\Mods"</PostBuildEvent>
   </PropertyGroup>
 </Project>

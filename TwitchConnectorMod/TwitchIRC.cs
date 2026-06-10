@@ -9,11 +9,15 @@ namespace TwitchConnectorMod
         public string oauth;
         public string nickName;
         public string channelName;
-        private string server = "irc.twitch.tv";
+        // irc.twitch.tv is the old, deprecated host. The current Twitch chat IRC
+        // endpoint is irc.chat.twitch.tv (6667 plaintext, 6697 for TLS).
+        private string server = "irc.chat.twitch.tv";
         private int port = 6667;
         public bool logRawMessages = false;
         public delegate void MessageReceivedEventHandler(object sender, ParsedTwitchMessage e);
         public event MessageReceivedEventHandler MessageReceived;
+        // Invoked if Twitch rejects our login token, so the mod can clear/refresh it.
+        public System.Action AuthFailedCallback;
 
         private string buffer = string.Empty;
         private bool stopThreads = false;
@@ -45,7 +49,13 @@ namespace TwitchConnectorMod
             Melon<TwitchConnectorMod>.Logger.Msg("StartIRC() - Sending PASS and NICK");
 
             //Send PASS & NICK.
-            output.WriteLine("PASS " + oauth);
+            // Twitch IRC expects the token prefixed with "oauth:". We store the bare
+            // token internally and add the prefix here (tolerating a token that already
+            // includes it, e.g. one pasted from an older generator).
+            string passToken = oauth;
+            if (!string.IsNullOrEmpty(passToken) && !passToken.StartsWith("oauth:"))
+                passToken = "oauth:" + passToken;
+            output.WriteLine("PASS " + passToken);
             output.WriteLine("NICK " + nickName.ToLower());
             // Adds information to incoming messages that include details like badges, whether they're a subscriber, or a mod/broadcaster, etc.
             output.WriteLine("CAP REQ :twitch.tv/tags"); 
@@ -60,6 +70,11 @@ namespace TwitchConnectorMod
                     continue;
 
                 buffer = input.ReadLine();
+                if (buffer == null)
+                {
+                    // Stream closed / disconnected.
+                    continue;
+                }
                 if (this.logRawMessages)
                 {
                     Melon<TwitchConnectorMod>.Logger.Msg("Twitch IRC: " + buffer);
@@ -79,8 +94,20 @@ namespace TwitchConnectorMod
                     SendCommand(buffer.Replace("PING", "PONG"));
                 }
 
-                //After server sends 001 command, we can join a channel
-                if (buffer.Split(' ')[1] == "001")
+                // Twitch tells us if the token was rejected. Surface it clearly and
+                // let the mod clear the bad token so a restart re-authorizes.
+                if (buffer.Contains("Login authentication failed") ||
+                    buffer.Contains("Login unsuccessful") ||
+                    buffer.Contains("Improperly formatted auth"))
+                {
+                    Melon<TwitchConnectorMod>.Logger.Msg("Twitch login failed - the chat token was rejected.");
+                    if (AuthFailedCallback != null)
+                        AuthFailedCallback();
+                }
+
+                //After server sends 001 command, we can join a channel.
+                string[] parts = buffer.Split(' ');
+                if (parts.Length > 1 && parts[1] == "001")
                 {
                     SendCommand("JOIN #" + channelName);
                     Melon<TwitchConnectorMod>.Logger.Msg("Connected to Twitch.");
