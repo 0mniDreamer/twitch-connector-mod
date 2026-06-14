@@ -37,5 +37,5 @@ using TwitchConnectorMod;
 [assembly: AssemblyVersion("1.3.1.0")]
 [assembly: AssemblyFileVersion("1.3.1.0")]
 
-[assembly: MelonInfo(typeof(TwitchConnectorMod.TwitchConnectorMod), "Twitch Connector Mod", "1.3.1", "Steglasaurous")]
+[assembly: MelonInfo(typeof(TwitchConnectorMod.TwitchConnectorMod), "Twitch Connector Mod", "1.3.1", "Steglasaurous & Omnidreamer_")]
 [assembly: MelonGame()] // FIXME: Confirm this might indeed work anywhere - maybe useful for other supported games? 
