@@ -32,13 +32,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Il2Cppmscorlib">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\Il2Cppmscorlib.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Managed\Il2Cppmscorlib.dll</HintPath>
     </Reference>
     <Reference Include="MelonLoader">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\MelonLoader.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\MelonLoader.dll</HintPath>
     </Reference>
     <Reference Include="Mono.CSharp">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\Mono.CSharp.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Managed\Mono.CSharp.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -49,20 +49,21 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
     <Reference Include="UnhollowerBaseLib">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\UnhollowerBaseLib.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Dependencies\Il2CppAssemblyGenerator\Il2CppAssemblyUnhollower\UnhollowerBaseLib.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\UnityEngine.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Dependencies\Il2CppAssemblyGenerator\UnityDependencies\UnityEngine.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.BaselibModule">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\UnityEngine.BaselibModule.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Dependencies\Il2CppAssemblyGenerator\UnityDependencies\UnityEngine.BaselibModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Audica\MelonLoader\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>E:\SteamLibrary\steamapps\common\Audica\MelonLoader\Dependencies\Il2CppAssemblyGenerator\UnityDependencies\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ParsedTwitchMessage.cs" />
+    <Compile Include="MiniJson.cs" />
     <Compile Include="TwitchAuth.cs" />
     <Compile Include="TwitchTokenStore.cs" />
     <Compile Include="TwitchIRC.cs" />

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using MelonLoader;
 
 namespace TwitchConnectorMod
@@ -31,8 +30,8 @@ namespace TwitchConnectorMod
                     return tokens;
 
                 string json = File.ReadAllText(path);
-                tokens.AccessToken = ExtractString(json, "accessToken") ?? "";
-                tokens.RefreshToken = ExtractString(json, "refreshToken") ?? "";
+                tokens.AccessToken = MiniJson.ExtractString(json, "accessToken") ?? "";
+                tokens.RefreshToken = MiniJson.ExtractString(json, "refreshToken") ?? "";
             }
             catch (Exception ex)
             {
@@ -91,12 +90,5 @@ namespace TwitchConnectorMod
             return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
-        private static string ExtractString(string json, string key)
-        {
-            if (string.IsNullOrEmpty(json)) return null;
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-            if (!m.Success) return null;
-            return m.Groups[1].Value.Replace("\\\"", "\"").Replace("\\\\", "\\");
-        }
     }
 }

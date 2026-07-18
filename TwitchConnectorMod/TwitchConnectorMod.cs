@@ -6,13 +6,12 @@ namespace TwitchConnectorMod
 {
     public class TwitchConnectorMod : MelonMod
     {
-        // The app credentials are baked into the build here - end users never see or
-        // edit them, and they are NOT written to MelonPreferences.cfg.
-        // A Client ID is public; a Client Secret is technically extractable from a
-        // distributed build, so rotate it from the Twitch console if it is ever abused.
+        // The Client ID of the Twitch app (registered as a PUBLIC client - see README).
+        // A Client ID is a public identifier by design, so it's safe to have here in
+        // the clear. The implicit grant flow needs no client secret at all, so nothing
+        // sensitive ships in this mod.
         // RedirectPort must match the redirect URL registered on Twitch (http://localhost:<port>).
-        private const string ClientId = "0s3jhq1f5spq9np3r4cgqr9voqv7bt";
-        private const string ClientSecret = "cupa3ndjeky5fgaa7kb8nmta3d0yfa";
+        private const string ClientId = "ysvczvyml8q1qenwgs9w3sjfubcdrl";
         private const int RedirectPort = 3000;
 
         internal static TwitchIRC IRC = new TwitchIRC();
@@ -42,7 +41,7 @@ namespace TwitchConnectorMod
             oauthToken = twitchConnectorPrefs.CreateEntry<string>("OAuthToken", "");
             oauthToken.Comment = "Optional. Leave blank to log in via the browser. Only set this if pasting a chat token from another generator.";
 
-            // FIXME: Consider supporting multiple channels?
+           
             channel = twitchConnectorPrefs.CreateEntry<string>("Channel", "");
             channel.Comment = "The twitch channel to join - typically the same as your username.";
 
@@ -64,7 +63,7 @@ namespace TwitchConnectorMod
             try
             {
                 tokens = TwitchTokenStore.Load();
-                auth = new TwitchAuth(ClientId, ClientSecret, RedirectPort);
+                auth = new TwitchAuth(ClientId, RedirectPort);
 
                 string token = ResolveAccessToken();
                 if (string.IsNullOrEmpty(token))
@@ -139,22 +138,12 @@ namespace TwitchConnectorMod
                 return tokens.AccessToken;
             }
 
-            // 3. Refresh using the stored refresh token (no browser needed).
-            if (!string.IsNullOrEmpty(tokens.RefreshToken))
+            // 3. Full browser authorization (the one-click "Connect with Twitch" step).
+            // Implicit-grant tokens can't be refreshed, so when the stored token
+            // expires this flow simply runs again.
+            if (string.IsNullOrEmpty(ClientId))
             {
-                LoggerInstance.Msg("Refreshing Twitch token...");
-                TwitchAuth.TokenResult refreshed = auth.Refresh(tokens.RefreshToken);
-                if (refreshed != null)
-                {
-                    StoreTokens(refreshed);
-                    return refreshed.AccessToken;
-                }
-            }
-
-            // 4. Full browser authorization (the one-time "click Authorize" step).
-            if (string.IsNullOrEmpty(ClientId) || string.IsNullOrEmpty(ClientSecret))
-            {
-                LoggerInstance.Msg("No Twitch ClientId/ClientSecret baked into this build. Either paste an OAuthToken in MelonPreferences.cfg or rebuild with credentials set (see README).");
+                LoggerInstance.Msg("No Twitch ClientId baked into this build. Either paste an OAuthToken in MelonPreferences.cfg or rebuild with a ClientId set (see README).");
                 return null;
             }
 
@@ -176,15 +165,13 @@ namespace TwitchConnectorMod
         {
             LoggerInstance.Msg("Twitch rejected the login token. Clearing it - restart Audica to re-authorize.");
             tokens.AccessToken = "";
-            TwitchTokenStore.Save(tokens.AccessToken, tokens.RefreshToken);
+            TwitchTokenStore.Save(tokens.AccessToken, "");
         }
 
         private void StoreTokens(TwitchAuth.TokenResult result)
         {
             tokens.AccessToken = result.AccessToken ?? "";
-            if (!string.IsNullOrEmpty(result.RefreshToken))
-                tokens.RefreshToken = result.RefreshToken;
-            TwitchTokenStore.Save(tokens.AccessToken, tokens.RefreshToken);
+            TwitchTokenStore.Save(tokens.AccessToken, "");
         }
 
         private void SavePrefs()

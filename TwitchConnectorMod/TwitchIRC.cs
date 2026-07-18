@@ -170,7 +170,7 @@ namespace TwitchConnectorMod
         public void Disable()
         {
             stopThreads = true;
-            // FIXME: Need something to disconnect from IRC here?
+           
         }
 
         public void Update()

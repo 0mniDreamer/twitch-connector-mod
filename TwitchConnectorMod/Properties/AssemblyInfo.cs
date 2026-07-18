@@ -34,8 +34,8 @@ using TwitchConnectorMod;
 // You can specify all the values or you can default the Build and Revision Numbers
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("1.3.1.0")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
 
-[assembly: MelonInfo(typeof(TwitchConnectorMod.TwitchConnectorMod), "Twitch Connector Mod", "1.3.1", "Steglasaurous & Omnidreamer_")]
-[assembly: MelonGame()] // FIXME: Confirm this might indeed work anywhere - maybe useful for other supported games? 
+[assembly: MelonInfo(typeof(TwitchConnectorMod.TwitchConnectorMod), "Twitch Connector Mod", "1.5.0", "Steglasaurous & OmniDreamer")]
+[assembly: MelonGame()] 

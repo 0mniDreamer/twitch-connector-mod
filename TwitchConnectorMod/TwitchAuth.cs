@@ -6,32 +6,29 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using MelonLoader;
 
 namespace TwitchConnectorMod
 {
     /// <summary>
-    /// Handles Twitch OAuth using the Authorization Code Grant Flow with a local
-    /// loopback redirect. The user clicks a single "Authorize" button in their
-    /// browser and the mod captures the result automatically - no codes to type.
+    /// Handles Twitch OAuth using the Implicit Grant Flow with a local loopback
+    /// redirect. The user clicks "Connect with Twitch" on a local page, approves on
+    /// twitch.tv, and the token is captured automatically.
     ///
-    /// Flow:
-    ///   1. Start a tiny local listener on http://localhost:PORT/.
-    ///   2. Open the browser to Twitch's /authorize page.
-    ///   3. User clicks Authorize; Twitch redirects to localhost with ?code=...
-    ///   4. Exchange the code at /oauth2/token for access + refresh tokens.
-    ///   5. Refresh silently later using the refresh token.
+    /// Why implicit: it requires NO client secret (the Twitch app is registered as a
+    /// Public client), so nothing sensitive ships in the mod at all. The tradeoff is
+    /// that implicit tokens cannot be refreshed - when the token eventually expires,
+    /// the mod simply re-runs this one-click browser flow.
     ///
-    /// NOTE: Twitch does not support PKCE, so the authorization code flow requires a
-    /// client secret. Because this mod is distributed, that secret is technically
-    /// extractable; rotate it from the Twitch console if it is ever abused.
+    /// Mechanics note: Twitch returns the token in the URL *fragment*
+    /// (#access_token=...), which browsers never send to a server. The local page
+    /// therefore includes a small script that reads the fragment and forwards it to
+    /// the listener as /token?access_token=...
     /// </summary>
     public class TwitchAuth
     {
         private const string AuthorizeEndpoint = "https://id.twitch.tv/oauth2/authorize";
-        private const string TokenEndpoint = "https://id.twitch.tv/oauth2/token";
         private const string ValidateEndpoint = "https://id.twitch.tv/oauth2/validate";
 
         // Scopes required to read from and write to chat over IRC.
@@ -40,13 +37,11 @@ namespace TwitchConnectorMod
         private static readonly HttpClient Http = new HttpClient();
 
         public string ClientId;
-        public string ClientSecret;
         public int RedirectPort;
 
-        public TwitchAuth(string clientId, string clientSecret, int redirectPort)
+        public TwitchAuth(string clientId, int redirectPort)
         {
             this.ClientId = clientId;
-            this.ClientSecret = clientSecret;
             this.RedirectPort = redirectPort > 0 ? redirectPort : 3000;
 
             // Older Unity/mono runtimes default to a TLS version Twitch rejects.
@@ -63,8 +58,6 @@ namespace TwitchConnectorMod
         public class TokenResult
         {
             public string AccessToken;
-            public string RefreshToken;
-            public int ExpiresIn;
         }
 
         public class ValidationResult
@@ -79,9 +72,9 @@ namespace TwitchConnectorMod
         /// </summary>
         public TokenResult RunBrowserAuth()
         {
-            if (string.IsNullOrEmpty(ClientId) || string.IsNullOrEmpty(ClientSecret))
+            if (string.IsNullOrEmpty(ClientId))
             {
-                Log("Twitch ClientId/ClientSecret not set, cannot authorize. See the README.");
+                Log("Twitch ClientId not set, cannot authorize. See the README.");
                 return null;
             }
 
@@ -97,33 +90,34 @@ namespace TwitchConnectorMod
                 catch (Exception ex)
                 {
                     Log("Could not start local listener on port " + RedirectPort + " (" + ex.Message +
-                        "). Change RedirectPort in MelonPreferences.cfg and make sure it matches the redirect URL registered on Twitch.");
+                        "). The port must be free and must match the redirect URL registered on Twitch.");
                     return null;
                 }
 
                 string state = Guid.NewGuid().ToString("N");
                 string authUrl = AuthorizeEndpoint +
-                    "?response_type=code" +
+                    "?response_type=token" +
                     "&client_id=" + Uri.EscapeDataString(ClientId) +
                     "&redirect_uri=" + Uri.EscapeDataString(RedirectUri) +
                     "&scope=" + Uri.EscapeDataString(Scopes) +
                     "&state=" + state;
 
-                // --- Step 2: open the browser ---
-                Log("Opening your browser to authorize with Twitch...");
+                // --- Step 2: open the browser to OUR local landing page, not Twitch.
+                // The page asks the user to click "Connect with Twitch" so nothing
+                // happens without an explicit user action.
+                Log("Opening your browser to connect to Twitch...");
                 Log("If it doesn't open automatically, paste this URL into any browser:");
-                Log("  " + authUrl);
-                OpenBrowser(authUrl);
+                Log("  " + RedirectUri + "/");
+                OpenBrowser(RedirectUri + "/");
 
-                // --- Step 3: wait for Twitch to redirect back to our listener ---
-                string query = WaitForRedirect(listener, 180);
-                if (query == null)
+                // --- Step 3: wait for the user to click Connect, authorize on Twitch,
+                // and have the page forward the token back to our listener ---
+                Dictionary<string, string> p = WaitForToken(listener, authUrl, 300);
+                if (p == null)
                 {
                     Log("Timed out waiting for Twitch authorization. Restart Audica to try again.");
                     return null;
                 }
-
-                Dictionary<string, string> p = ParseQuery(query);
 
                 string returnedState;
                 p.TryGetValue("state", out returnedState);
@@ -142,37 +136,15 @@ namespace TwitchConnectorMod
                     return null;
                 }
 
-                string code;
-                if (!p.TryGetValue("code", out code) || string.IsNullOrEmpty(code))
+                string accessToken;
+                if (!p.TryGetValue("access_token", out accessToken) || string.IsNullOrEmpty(accessToken))
                 {
-                    Log("Twitch did not return an authorization code.");
-                    return null;
-                }
-
-                // --- Step 4: exchange the code for access + refresh tokens ---
-                string response = PostForm(TokenEndpoint, new Dictionary<string, string>
-                {
-                    { "client_id", ClientId },
-                    { "client_secret", ClientSecret },
-                    { "code", code },
-                    { "grant_type", "authorization_code" },
-                    { "redirect_uri", RedirectUri }
-                });
-
-                string accessToken = ExtractString(response, "access_token");
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    Log("Failed to exchange the authorization code for a token: " + response);
+                    Log("Twitch did not return an access token.");
                     return null;
                 }
 
                 Log("Twitch authorization successful!");
-                return new TokenResult
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = ExtractString(response, "refresh_token"),
-                    ExpiresIn = ExtractInt(response, "expires_in", 14400)
-                };
+                return new TokenResult { AccessToken = accessToken };
             }
             catch (Exception ex)
             {
@@ -185,46 +157,6 @@ namespace TwitchConnectorMod
                 {
                     try { listener.Stop(); } catch { /* ignore */ }
                 }
-            }
-        }
-
-        /// <summary>
-        /// Uses a stored refresh token to get a fresh access token (silent reconnect).
-        /// Returns null if the refresh failed (caller should re-run the browser flow).
-        /// </summary>
-        public TokenResult Refresh(string refreshToken)
-        {
-            if (string.IsNullOrEmpty(refreshToken) || string.IsNullOrEmpty(ClientId) || string.IsNullOrEmpty(ClientSecret))
-                return null;
-
-            try
-            {
-                string response = PostForm(TokenEndpoint, new Dictionary<string, string>
-                {
-                    { "client_id", ClientId },
-                    { "client_secret", ClientSecret },
-                    { "grant_type", "refresh_token" },
-                    { "refresh_token", refreshToken }
-                });
-
-                string accessToken = ExtractString(response, "access_token");
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    Log("Twitch token refresh failed (will fall back to re-authorization): " + response);
-                    return null;
-                }
-
-                return new TokenResult
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = ExtractString(response, "refresh_token"),
-                    ExpiresIn = ExtractInt(response, "expires_in", 14400)
-                };
-            }
-            catch (Exception ex)
-            {
-                Log("Twitch token refresh error: " + ex.Message);
-                return null;
             }
         }
 
@@ -250,7 +182,7 @@ namespace TwitchConnectorMod
 
                     string body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                     result.Valid = true;
-                    result.Login = ExtractString(body, "login");
+                    result.Login = MiniJson.ExtractString(body, "login");
                     return result;
                 }
             }
@@ -261,12 +193,60 @@ namespace TwitchConnectorMod
         }
 
         /// <summary>
-        /// Polls the listener until Twitch redirects back with a code/error, responding
-        /// to any stray requests (e.g. favicon) with a benign page so the browser tab
-        /// isn't left hanging. Returns the raw query string, or null on timeout.
+        /// Serves a small local site while waiting for authorization:
+        ///   - A combined landing/capture page: if the URL has no token fragment it
+        ///     shows a "Connect with Twitch" button (explicit user consent); if Twitch
+        ///     has redirected back with a token in the fragment, a small script
+        ///     forwards it to /token so the mod can read it.
+        ///   - Success page once the token arrives; declined page if the user cancels.
+        /// Returns the parsed token/error parameters, or null on timeout.
         /// </summary>
-        private string WaitForRedirect(TcpListener listener, int timeoutSeconds)
+        private Dictionary<string, string> WaitForToken(TcpListener listener, string authUrl, int timeoutSeconds)
         {
+            // & must be entity-escaped inside an HTML attribute.
+            string authHref = authUrl.Replace("&", "&amp;");
+
+            const string pageStyle =
+                "<style>body{font-family:sans-serif;background:#0e0e10;color:#efeff1;" +
+                "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}" +
+                ".card{background:#18181b;padding:2.5em 3em;border-radius:12px;text-align:center;max-width:26em}" +
+                "h2{margin-top:0}p{color:#adadb8}" +
+                ".btn{display:inline-block;margin-top:1em;padding:0.8em 1.6em;background:#9147ff;" +
+                "color:#fff;text-decoration:none;border-radius:6px;font-weight:bold}" +
+                ".btn:hover{background:#772ce8}</style>";
+
+            // The landing page doubles as the fragment-capture page. On load, if the
+            // URL fragment contains a token or an error, it is forwarded to /token
+            // (fragments are never sent to servers, so this hop is required). If not,
+            // the Connect button is revealed.
+            string landingPage =
+                "<html><head><title>Connect to Twitch</title>" + pageStyle + "</head><body><div class='card'>" +
+                "<div id='wait'><h2>One moment...</h2></div>" +
+                "<div id='landing' style='display:none'>" +
+                "<h2>Audica Twitch Connector</h2>" +
+                "<p>This mod would like to connect to your Twitch account to read and send chat messages.</p>" +
+                "<a class='btn' href='" + authHref + "'>Connect with Twitch</a>" +
+                "<p style='font-size:0.85em'>You'll be taken to twitch.tv to approve. Close this tab to skip for now.</p>" +
+                "</div>" +
+                "<script>(function(){var h=location.hash;" +
+                "if(h&&(h.indexOf('access_token=')>=0||h.indexOf('error=')>=0)){" +
+                "location.replace('/token?'+h.substring(1));}else{" +
+                "document.getElementById('wait').style.display='none';" +
+                "document.getElementById('landing').style.display='block';}})();</script>" +
+                "</div></body></html>";
+
+            string successPage =
+                "<html><head><title>Connected</title>" + pageStyle + "</head><body><div class='card'>" +
+                "<h2>Audica is connecting to Twitch.</h2>" +
+                "<p>You can close this tab and return to the game.</p>" +
+                "</div></body></html>";
+
+            string declinedPage =
+                "<html><head><title>Authorization declined</title>" + pageStyle + "</head><body><div class='card'>" +
+                "<h2>Authorization declined</h2>" +
+                "<p>No problem - the mod won't connect to Twitch. Restart Audica if you change your mind.</p>" +
+                "</div></body></html>";
+
             DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
             while (DateTime.UtcNow < deadline)
             {
@@ -279,30 +259,59 @@ namespace TwitchConnectorMod
                 using (TcpClient client = listener.AcceptTcpClient())
                 using (NetworkStream stream = client.GetStream())
                 {
-                    // We only need the request line: "GET /?code=...&state=... HTTP/1.1"
-                    var reader = new StreamReader(stream, Encoding.ASCII);
-                    string requestLine = reader.ReadLine();
+                    // Don't let a stalled/broken connection hang the auth thread.
+                    client.ReceiveTimeout = 5000;
+                    client.SendTimeout = 5000;
 
+                    // First line is what we need: "GET /token?access_token=... HTTP/1.1"
+                    var reader = new StreamReader(stream, Encoding.ASCII);
+                    string requestLine = null;
+                    try { requestLine = reader.ReadLine(); }
+                    catch { /* stalled or bogus connection - skip it, keep waiting */ }
+
+                    // Drain the remaining request headers before responding - some
+                    // browsers abort if the server replies before the request is
+                    // fully sent.
+                    try
+                    {
+                        string headerLine;
+                        while (!string.IsNullOrEmpty(headerLine = reader.ReadLine())) { }
+                    }
+                    catch { /* timeout/disconnect while draining; proceed */ }
+
+                    string path = null;
                     string query = null;
                     if (!string.IsNullOrEmpty(requestLine))
                     {
                         string[] tokens = requestLine.Split(' ');
                         if (tokens.Length >= 2)
                         {
-                            string path = tokens[1];
+                            path = tokens[1];
                             int q = path.IndexOf('?');
                             if (q >= 0)
+                            {
                                 query = path.Substring(q + 1);
+                                path = path.Substring(0, q);
+                            }
                         }
                     }
 
-                    bool hasResult = query != null && (query.Contains("code=") || query.Contains("error="));
+                    // Twitch can also deliver a decline in the query string of the
+                    // redirect itself (before any fragment forwarding).
+                    bool isTokenRoute = path == "/token" && query != null;
+                    bool queryHasError = query != null && query.Contains("error=");
 
-                    string body = hasResult
-                        ? "<html><body style='font-family:sans-serif;text-align:center;margin-top:3em'>"
-                          + "<h2>Audica is connecting to Twitch.</h2><p>You can close this tab and return to the game.</p></body></html>"
-                        : "<html><body style='font-family:sans-serif;text-align:center;margin-top:3em'>"
-                          + "<h2>Waiting for Twitch authorization...</h2></body></html>";
+                    Dictionary<string, string> parsed = null;
+                    string body;
+                    if (isTokenRoute || queryHasError)
+                    {
+                        parsed = ParseQuery(query);
+                        body = parsed.ContainsKey("access_token") ? successPage : declinedPage;
+                    }
+                    else
+                    {
+                        body = landingPage;
+                    }
 
                     byte[] bodyBytes = Encoding.UTF8.GetBytes(body);
                     string headers = "HTTP/1.1 200 OK\r\n" +
@@ -319,9 +328,9 @@ namespace TwitchConnectorMod
                     }
                     catch { /* browser may have closed; ignore */ }
 
-                    if (hasResult)
-                        return query;
-                    // otherwise keep waiting for the real redirect
+                    if (parsed != null)
+                        return parsed;
+                    // otherwise (landing page / favicon) keep waiting
                 }
             }
             return null;
@@ -338,23 +347,6 @@ namespace TwitchConnectorMod
                 // Fallback for runtimes where UseShellExecute isn't honored.
                 try { Process.Start(url); }
                 catch { /* user can copy the URL printed to the log */ }
-            }
-        }
-
-        private string PostForm(string url, Dictionary<string, string> fields)
-        {
-            try
-            {
-                using (var content = new FormUrlEncodedContent(fields))
-                {
-                    HttpResponseMessage response = Http.PostAsync(url, content).GetAwaiter().GetResult();
-                    return response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("HTTP request to " + url + " failed: " + ex.Message);
-                return null;
             }
         }
 
@@ -377,25 +369,6 @@ namespace TwitchConnectorMod
                 dict[k] = v;
             }
             return dict;
-        }
-
-        // --- tiny, dependency-free JSON helpers (the responses here are flat) ---
-
-        private static string ExtractString(string json, string key)
-        {
-            if (string.IsNullOrEmpty(json)) return null;
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-            if (!m.Success) return null;
-            try { return Regex.Unescape(m.Groups[1].Value); }
-            catch { return m.Groups[1].Value; }
-        }
-
-        private static int ExtractInt(string json, string key, int fallback)
-        {
-            if (string.IsNullOrEmpty(json)) return fallback;
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(\\d+)");
-            int v;
-            return (m.Success && int.TryParse(m.Groups[1].Value, out v)) ? v : fallback;
         }
 
         private static void Log(string msg)
